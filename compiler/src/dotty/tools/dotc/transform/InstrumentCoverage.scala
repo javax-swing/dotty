@@ -330,7 +330,7 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
             tree.rhs
           else if sym.isClassConstructor then
             instrumentSecondaryCtor(tree)
-          else if !sym.isOneOf(Accessor) then
+          else if !sym.isOneOf(Accessor | Artifact | Synthetic) then
             // If the body can be instrumented, do it (i.e. insert a "coverage call" at the beginning)
             // This is useful because methods can be stored and called later, or called by reflection,
             // and if the rhs is too simple to be instrumented (like `def f = this`),
