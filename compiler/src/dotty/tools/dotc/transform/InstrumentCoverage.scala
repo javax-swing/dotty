@@ -237,8 +237,8 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
             val InstrumentedParts(pre, coverageCall, expr) = tryInstrument(fun)
 
             if coverageCall.isEmpty then
-              // `fun` cannot be instrumented, and `args` is a type so we keep this tree as it is
-              tree
+            // `fun` cannot be instrumented, and `args` is a type but the expr may have been transformed
+              cpy.TypeApply(tree)(expr, args)
             else
               // expr[T] shouldn't be transformed to:
               // {invoked(...), expr}[T]
@@ -330,7 +330,7 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
             tree.rhs
           else if sym.isClassConstructor then
             instrumentSecondaryCtor(tree)
-          else if !sym.isOneOf(Accessor | Artifact | Synthetic) then
+          else if !sym.isOneOf(Accessor) then
             // If the body can be instrumented, do it (i.e. insert a "coverage call" at the beginning)
             // This is useful because methods can be stored and called later, or called by reflection,
             // and if the rhs is too simple to be instrumented (like `def f = this`),
