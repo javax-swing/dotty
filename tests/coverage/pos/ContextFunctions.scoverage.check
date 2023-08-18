@@ -41,40 +41,6 @@ covtest
 Imperative
 Class
 covtest.Imperative
-$anonfun
-156
-168
-7
-$anonfun
-DefDef
-false
-0
-false
-(c: String) 
-
-2
-ContextFunctions.scala
-covtest
-Imperative
-Class
-covtest.Imperative
-$anonfun
-137
-152
-7
-$anonfun
-DefDef
-false
-0
-false
-(t: Exception) 
-
-3
-ContextFunctions.scala
-covtest
-Imperative
-Class
-covtest.Imperative
 readName2
 121
 134
@@ -86,7 +52,7 @@ false
 false
 def readName2
 
-4
+2
 ContextFunctions.scala
 covtest
 Imperative
@@ -103,7 +69,7 @@ false
 false
 OnError((e) => readName2(using e)(using s)).onError(None)
 
-5
+3
 ContextFunctions.scala
 covtest
 Imperative
@@ -120,7 +86,7 @@ false
 false
 OnError((e) => readName2(using e)(using s))
 
-6
+4
 ContextFunctions.scala
 covtest
 Imperative
@@ -137,24 +103,7 @@ false
 false
 readName2(using e)(using s)
 
-7
-ContextFunctions.scala
-covtest
-Imperative
-Class
-covtest.Imperative
-$anonfun
-260
-264
-13
-$anonfun
-DefDef
-false
-0
-false
-(e) 
-
-8
+5
 ContextFunctions.scala
 covtest
 Imperative
