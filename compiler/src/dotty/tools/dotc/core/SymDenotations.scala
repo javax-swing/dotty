@@ -654,6 +654,10 @@ object SymDenotations {
     def isPrimitiveValueClass(using Context): Boolean =
       maybeOwner == defn.ScalaPackageClass && defn.ScalaValueClasses().contains(symbol)
 
+    /** Is symbol a primitive value class? */
+    def isBooleanValueClass(using Context): Boolean =
+      maybeOwner == defn.ScalaPackageClass && defn.BooleanType.symbol == symbol
+
     /** Is symbol a primitive numeric value class? */
     def isNumericValueClass(using Context): Boolean =
       maybeOwner == defn.ScalaPackageClass && defn.ScalaNumericValueClasses().contains(symbol)

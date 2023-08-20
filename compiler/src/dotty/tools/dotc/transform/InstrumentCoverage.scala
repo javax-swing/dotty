@@ -132,7 +132,26 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
       * @return instrumentation result, with the preparation statement, coverage call and tree separated
       */
     private def tryInstrument(tree: Apply)(using Context): InstrumentedParts =
-      if canInstrumentApply(tree) then
+
+      val sym = tree.symbol
+      if !sym.isOneOf(ExcludeMethodFlags) && isBooleanMethod(sym) && isShortCircuitOp(sym) then
+        // instrument individual parts as branches
+        // ensure that only the individual expressions are highlighted and not the operators
+
+        val transformed = cpy.Apply(tree)(
+          transformShortCircuitBranch(tree.fun, true),
+          tree.args.map(transformShortCircuitBranch(_, false)))
+
+        InstrumentedParts.notCovered(transformed)
+
+      else if !sym.isOneOf(ExcludeMethodFlags) && isNumericMethod(sym) then
+        val transformed = cpy.Apply(tree)(
+          transformNumericBranch(tree.fun, true),
+          tree.args.map(transformNumericBranch(_, false)))
+
+        InstrumentedParts.notCovered(transformed)
+
+      else if canInstrumentApply(tree) then
         // Create a call to Invoker.invoked(coverageDirectory, newStatementId)
         val coverageCall = createInvokeCall(tree, tree.sourcePos)
 
@@ -308,6 +327,107 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
             super.transform(tree)
         }
 
+    private def transformShortCircuitBranch(tree: Tree, left: Boolean)(using Context): Tree = {
+      inContext(transformCtx(tree)) {
+        tree match {
+          case ident: Ident =>
+            val coverageCall = createInvokeCall(tree, tree.sourcePos, true)
+            Block(
+              List(coverageCall),
+              tree
+            )
+
+          case select: Select if !select.qualifier.symbol.isOneOf(ExcludeMethodFlags) &&
+            isBooleanMethod(select.qualifier.symbol) &&
+            isShortCircuitOp(select.qualifier.symbol) =>
+
+            // nested short circuit, change qualifier tree but not select
+            // this is so that we highlight the individual pieces of the short circuit expression
+            // rather than the whole thing
+            cpy.Select(tree)(transformShortCircuitBranch(select.qualifier, left), select.name)
+
+          case select: Select =>
+            val span = if (left) tree.span.withEnd(tree.span.end - 2) else tree.span
+            val coverageCall = createInvokeCall(tree, tree.source.atSpan(span), true)
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+
+          case apply: Apply if !apply.symbol.isOneOf(ExcludeMethodFlags) &&
+            isBooleanMethod(apply.symbol) &&
+            isShortCircuitOp(apply.symbol) =>
+
+            // nested short circuit apply. Run through the normal transform process
+            transform(tree)
+
+          case apply: Apply if !canInstrumentApply(apply) =>
+
+            // covers primitive comparisons being part of the expression
+            val coverageCall = createInvokeCall(tree, tree.sourcePos, true)
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+
+          case _ =>
+            val coverageCall = createInvokeCall(tree, tree.sourcePos, true)
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+        }
+      }
+    }
+
+    private def transformNumericBranch(tree: Tree, left: Boolean)(using Context): Tree = {
+      inContext(transformCtx(tree)) {
+        tree match {
+          case ident: Ident =>
+            val coverageCall = createInvokeCall(tree, tree.sourcePos)
+            Block(
+              List(coverageCall),
+              tree
+            )
+
+          case select: Select if !select.qualifier.symbol.isOneOf(ExcludeMethodFlags) &&
+            isNumericMethod(select.qualifier.symbol)  =>
+
+            // nested numeric expression, don't highlight the whole thing, just the indivual parts
+            cpy.Select(tree)(transformNumericBranch(select.qualifier, left), select.name)
+
+          case select: Select =>
+
+            // for consistency never hightlight the operator
+            val span = if (left) tree.span.withEnd(tree.span.end - 1) else tree.span
+            val coverageCall = createInvokeCall(tree, tree.source.atSpan(span))
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+
+          case apply: Apply if !apply.symbol.isOneOf(ExcludeMethodFlags) && isNumericMethod(apply.symbol) =>
+            // nested numeric expression. Run through the normal transform process
+            transform(tree)
+
+          case apply: Apply if !canInstrumentApply(apply) =>
+            // covers primitive comparisons being part of the expression
+            val coverageCall = createInvokeCall(tree, tree.sourcePos)
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+
+          case _ =>
+            val coverageCall = createInvokeCall(tree, tree.sourcePos)
+            Block(
+              List(coverageCall),
+              transform(tree)
+            )
+        }
+      }
+    }
+
     /** Transforms a `def lhs = rhs` and instruments its body (rhs).
       *
       * The rhs is always transformed recursively.
@@ -330,7 +450,7 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
             tree.rhs
           else if sym.isClassConstructor then
             instrumentSecondaryCtor(tree)
-          else if !sym.isOneOf(Accessor | Artifact | Synthetic) then
+          else if !sym.isOneOf(Accessor | Artifact | Synthetic) || (!sym.isOneOf(Accessor) && sym.isAnonymousFunction) then
             // If the body can be instrumented, do it (i.e. insert a "coverage call" at the beginning)
             // This is useful because methods can be stored and called later, or called by reflection,
             // and if the rhs is too simple to be instrumented (like `def f = this`),
@@ -514,6 +634,18 @@ class InstrumentCoverage extends MacroTransform with IdentityDenotTransformer:
       && sym.info.isParameterless
       && !isCompilerIntrinsicMethod(sym)
       && !sym.info.typeSymbol.name.isContextFunction // exclude context functions like in canInstrumentApply
+
+    private val numericMethods = Set("-", "+", "/", "%", "*", "&", "|", "^")
+    private def isNumericMethod(sym: Symbol)(using Context): Boolean =
+      val owner = sym.maybeOwner
+      owner.exists && owner.isNumericValueClass && numericMethods.contains(sym.name.toString)
+
+    private def isBooleanMethod(sym: Symbol)(using Context): Boolean =
+      val owner = sym.maybeOwner
+      owner.exists && owner.isBooleanValueClass
+
+    private def isShortCircuitOp(sym: Symbol)(using Context): Boolean =
+      sym == defn.Boolean_&& || sym == defn.Boolean_||
 
     /** Does sym refer to a "compiler intrinsic" method, which only exist during compilation,
       * like Any.isInstanceOf?
